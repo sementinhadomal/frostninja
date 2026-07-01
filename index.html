@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="de"><head>
+﻿<!DOCTYPE html><html lang="de"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ninja SLUSHi FS301EU – Slush-Eismaschine | Arctic Blue & Grey</title>
@@ -1558,4 +1558,68 @@ footer a:hover { color: rgba(255,255,255,.8); }
 
 </script>
 
+
+<script>
+  // ── UTM Passthrough para Checkout ─────────────────────────────
+  // Captura todas as UTMs + clids da URL da landing page e cola
+  // nos links de checkout, garantindo rastreio completo na Shopify.
+  (function () {
+    var UTM_KEYS = [
+      'utm_source','utm_medium','utm_campaign',
+      'utm_term','utm_content','utm_id',
+      'fbclid','gclid','ttclid','sck','src'
+    ];
+
+    function getUtmifyStored() {
+      try {
+        var raw = localStorage.getItem('utmify_utms');
+        if (raw) return new URLSearchParams(JSON.parse(raw));
+      } catch(e) {}
+      return new URLSearchParams();
+    }
+
+    function buildUtmString() {
+      var page   = new URLSearchParams(window.location.search);
+      var stored = getUtmifyStored();
+      var merged = new URLSearchParams();
+      UTM_KEYS.forEach(function(k) {
+        var v = page.get(k) || stored.get(k);
+        if (v) merged.set(k, v);
+      });
+      return merged.toString();
+    }
+
+    function appendUtms(baseUrl, utmString) {
+      if (!utmString) return baseUrl;
+      var parts = baseUrl.split('?');
+      var dest  = new URLSearchParams(parts[1] || '');
+      var toAdd = new URLSearchParams(utmString);
+      toAdd.forEach(function(v, k) { if (!dest.has(k)) dest.set(k, v); });
+      var q = dest.toString();
+      return q ? parts[0] + '?' + q : parts[0];
+    }
+
+    function patchLinks() {
+      var utmString = buildUtmString();
+      if (!utmString) return;
+      document.querySelectorAll('a[href]').forEach(function(link) {
+        var href = link.getAttribute('href');
+        if (!href || href.charAt(0) === '#') return;
+        if (href.indexOf('almont-clothing') !== -1 ||
+            href.indexOf('myshopify')       !== -1 ||
+            href.indexOf('buy.stripe')      !== -1 ||
+            href.indexOf('eisninja')        !== -1) {
+          link.setAttribute('href', appendUtms(href, utmString));
+        }
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', patchLinks);
+    } else {
+      patchLinks();
+    }
+    setTimeout(patchLinks, 1500);
+  })();
+</script>
 </body></html>
