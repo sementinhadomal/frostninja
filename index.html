@@ -1605,6 +1605,7 @@ footer a:hover { color: rgba(255,255,255,.8); }
       document.querySelectorAll('a[href]').forEach(function(link) {
         var href = link.getAttribute('href');
         if (!href || href.charAt(0) === '#') return;
+        if (href.indexOf('chillninja.shop')  !== -1 ||
         if (href.indexOf('almont-clothing') !== -1 ||
             href.indexOf('myshopify')       !== -1 ||
             href.indexOf('buy.stripe')      !== -1 ||
