@@ -1623,4 +1623,108 @@ footer a:hover { color: rgba(255,255,255,.8); }
     setTimeout(patchLinks, 1500);
   })();
 </script>
+
+<!-- Shopify Buy Button SDK - hidden, apenas para gerar checkout URL -->
+<div id='product-component-1783388263428' style='display:none'></div>
+<script type="text/javascript">
+(function () {
+  var SHOPIFY_DOMAIN    = '9unu1t-rt.myshopify.com';
+  var STOREFRONT_TOKEN  = '76ecb7fe38ea4a9f9031cd19fa7e6e61';
+  var PRODUCT_ID        = '7694218723422';
+
+  // ── Pega UTMs da página atual ──────────────────────────────────
+  function getUtmParams() {
+    var keys = ['utm_source','utm_medium','utm_campaign','utm_term',
+                'utm_content','utm_id','fbclid','gclid','ttclid','sck','src'];
+    try {
+      var stored = JSON.parse(localStorage.getItem('utmify_utms') || '{}');
+      var page   = Object.fromEntries(new URLSearchParams(window.location.search));
+      var merged = Object.assign({}, stored, page);
+      var out    = new URLSearchParams();
+      keys.forEach(function(k){ if (merged[k]) out.set(k, merged[k]); });
+      return out.toString();
+    } catch(e) { return ''; }
+  }
+
+  function appendUtms(url) {
+    var utms = getUtmParams();
+    if (!utms) return url;
+    return url + (url.indexOf('?') !== -1 ? '&' : '?') + utms;
+  }
+
+  // ── Atualiza todos os botoes de compra com a URL gerada ────────
+  function applyCheckoutUrl(url) {
+    var finalUrl = appendUtms(url);
+    document.querySelectorAll('a.pc-btn, a.btn-red, a[data-checkout]').forEach(function(btn) {
+      var href = btn.getAttribute('href') || '';
+      if (href && href.charAt(0) !== '#') {
+        btn.setAttribute('href', finalUrl);
+      }
+    });
+    // Guarda para uso posterior (ex: após scroll)
+    window.__shopifyCheckoutUrl = finalUrl;
+  }
+
+  // ── Usa Storefront API para gerar checkout permanente ──────────
+  function createCheckout(variantId) {
+    var mutation = JSON.stringify({
+      query: 'mutation checkoutCreate($input: CheckoutCreateInput!) { checkoutCreate(input: $input) { checkout { webUrl } errors { field message } } }',
+      variables: { input: { lineItems: [{ variantId: variantId, quantity: 1 }] } }
+    });
+
+    fetch('https://' + SHOPIFY_DOMAIN + '/api/2024-01/graphql.json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Storefront-Access-Token': STOREFRONT_TOKEN
+      },
+      body: mutation
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var url = data && data.data && data.data.checkoutCreate &&
+                data.data.checkoutCreate.checkout &&
+                data.data.checkoutCreate.checkout.webUrl;
+      if (url) { applyCheckoutUrl(url); }
+    })
+    .catch(function(e){ console.warn('Shopify checkout error:', e); });
+  }
+
+  // ── Busca o variantId do produto e cria checkout ───────────────
+  function init() {
+    var query = JSON.stringify({
+      query: '{ product(id: "gid://shopify/Product/' + PRODUCT_ID + '") { variants(first:1){ edges{ node{ id } } } } }'
+    });
+
+    fetch('https://' + SHOPIFY_DOMAIN + '/api/2024-01/graphql.json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Storefront-Access-Token': STOREFRONT_TOKEN
+      },
+      body: query
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var variantId = data && data.data && data.data.product &&
+                      data.data.product.variants.edges[0] &&
+                      data.data.product.variants.edges[0].node.id;
+      if (variantId) { createCheckout(variantId); }
+    })
+    .catch(function(e){ console.warn('Shopify variant error:', e); });
+  }
+
+  // Executa quando DOM estiver pronto
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  // Reaplica UTMs 1.5s depois (garante Utmify carregada)
+  setTimeout(function(){
+    if (window.__shopifyCheckoutUrl) { applyCheckoutUrl(window.__shopifyCheckoutUrl); }
+  }, 1500);
+})();
+</script>
 </body></html>
