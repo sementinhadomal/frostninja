@@ -1624,107 +1624,129 @@ footer a:hover { color: rgba(255,255,255,.8); }
   })();
 </script>
 
-<!-- Shopify Buy Button SDK - hidden, apenas para gerar checkout URL -->
-<div id='product-component-1783388263428' style='display:none'></div>
+<!-- Shopify Checkout - SDK oculto + delegacao de clique -->
+<div id="shopify-btn-hidden" style="display:none;position:absolute;left:-9999px;"></div>
 <script type="text/javascript">
 (function () {
-  var SHOPIFY_DOMAIN    = '9unu1t-rt.myshopify.com';
-  var STOREFRONT_TOKEN  = '76ecb7fe38ea4a9f9031cd19fa7e6e61';
-  var PRODUCT_ID        = '7694218723422';
+  'use strict';
 
-  // ── Pega UTMs da página atual ──────────────────────────────────
+  /* ── UTMs da pagina atual ─────────────────────────────────── */
   function getUtmParams() {
     var keys = ['utm_source','utm_medium','utm_campaign','utm_term',
-                'utm_content','utm_id','fbclid','gclid','ttclid','sck','src'];
+                'utm_content','utm_id','fbclid','gclid','ttclid'];
+    var page = new URLSearchParams(window.location.search);
     try {
       var stored = JSON.parse(localStorage.getItem('utmify_utms') || '{}');
-      var page   = Object.fromEntries(new URLSearchParams(window.location.search));
-      var merged = Object.assign({}, stored, page);
-      var out    = new URLSearchParams();
-      keys.forEach(function(k){ if (merged[k]) out.set(k, merged[k]); });
+      var merged = Object.assign({}, stored,
+        Object.fromEntries ? Object.fromEntries(page) : {});
+      page.forEach(function(v,k){ merged[k]=v; });
+      var out = new URLSearchParams();
+      keys.forEach(function(k){ if(merged[k]) out.set(k, merged[k]); });
       return out.toString();
-    } catch(e) { return ''; }
+    } catch(e) { return page.toString(); }
   }
 
   function appendUtms(url) {
-    var utms = getUtmParams();
-    if (!utms) return url;
-    return url + (url.indexOf('?') !== -1 ? '&' : '?') + utms;
+    var q = getUtmParams();
+    return q ? url + (url.indexOf('?')!==-1?'&':'?') + q : url;
   }
 
-  // ── Atualiza todos os botoes de compra com a URL gerada ────────
-  function applyCheckoutUrl(url) {
-    var finalUrl = appendUtms(url);
-    document.querySelectorAll('a.pc-btn, a.btn-red, a[data-checkout]').forEach(function(btn) {
+  /* ── Estado global ──────────────────────────────────────── */
+  var sdkBtn       = null;   // botao oculto do Shopify SDK
+  var pendingClick = false;  // usuario clicou antes do SDK carregar
+
+  /* ── Nossos botoes: intercepta clique ───────────────────── */
+  function bindOurButtons() {
+    document.querySelectorAll('a.pc-btn, a.btn-red').forEach(function(btn) {
       var href = btn.getAttribute('href') || '';
-      if (href && href.charAt(0) !== '#') {
-        btn.setAttribute('href', finalUrl);
-      }
+      if (!href || href.charAt(0) === '#') return;
+      // Impede navegacao pelo href antigo
+      btn.setAttribute('href', 'javascript:void(0)');
+      btn.style.cursor = 'pointer';
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (sdkBtn) {
+          sdkBtn.click();   // SDK pronto -> clica no botao oculto
+        } else {
+          pendingClick = true;   // SDK ainda carregando -> enfileira
+          btn.textContent = btn.textContent.trim() + ' ...';
+        }
+      });
     });
-    // Guarda para uso posterior (ex: após scroll)
-    window.__shopifyCheckoutUrl = finalUrl;
   }
 
-  // ── Usa Storefront API para gerar checkout permanente ──────────
-  function createCheckout(variantId) {
-    var mutation = JSON.stringify({
-      query: 'mutation checkoutCreate($input: CheckoutCreateInput!) { checkoutCreate(input: $input) { checkout { webUrl } errors { field message } } }',
-      variables: { input: { lineItems: [{ variantId: variantId, quantity: 1 }] } }
+  /* ── Shopify SDK ─────────────────────────────────────────── */
+  function ShopifyBuyInit() {
+    var client = ShopifyBuy.buildClient({
+      domain: '9unu1t-rt.myshopify.com',
+      storefrontAccessToken: '76ecb7fe38ea4a9f9031cd19fa7e6e61',
     });
 
-    fetch('https://' + SHOPIFY_DOMAIN + '/api/2024-01/graphql.json', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Storefront-Access-Token': STOREFRONT_TOKEN
-      },
-      body: mutation
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      var url = data && data.data && data.data.checkoutCreate &&
-                data.data.checkoutCreate.checkout &&
-                data.data.checkoutCreate.checkout.webUrl;
-      if (url) { applyCheckoutUrl(url); }
-    })
-    .catch(function(e){ console.warn('Shopify checkout error:', e); });
-  }
+    /* Monta customAttributes com UTMs para rastreio no Shopify */
+    function buildCustomAttrs() {
+      var attrs = [];
+      try {
+        new URLSearchParams(getUtmParams()).forEach(function(v,k){
+          attrs.push({ key: k, value: v });
+        });
+      } catch(e){}
+      return attrs;
+    }
 
-  // ── Busca o variantId do produto e cria checkout ───────────────
-  function init() {
-    var query = JSON.stringify({
-      query: '{ product(id: "gid://shopify/Product/' + PRODUCT_ID + '") { variants(first:1){ edges{ node{ id } } } } }'
+    ShopifyBuy.UI.onReady(client).then(function (ui) {
+      ui.createComponent('product', {
+        id: '7694218723422',
+        node: document.getElementById('shopify-btn-hidden'),
+        moneyFormat: '%24%7B%7Bamount%7D%7D',
+        options: {
+          product: {
+            buttonDestination: 'checkout',
+            contents: { img: false, title: false, price: false },
+            text: { button: 'Buy now' }
+          },
+          cart: {
+            note: getUtmParams(),          // UTMs como nota do pedido
+            customAttributes: buildCustomAttrs()
+          }
+        }
+      });
+
+      /* Aguarda o SDK renderizar o botao oculto */
+      var tries = 0;
+      var poll = setInterval(function () {
+        var btn = document.querySelector('#shopify-btn-hidden button');
+        tries++;
+        if (btn) {
+          clearInterval(poll);
+          sdkBtn = btn;
+          if (pendingClick) { btn.click(); }   // dispara clique enfileirado
+        }
+        if (tries > 40) clearInterval(poll);   // timeout 12s
+      }, 300);
     });
-
-    fetch('https://' + SHOPIFY_DOMAIN + '/api/2024-01/graphql.json', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Storefront-Access-Token': STOREFRONT_TOKEN
-      },
-      body: query
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      var variantId = data && data.data && data.data.product &&
-                      data.data.product.variants.edges[0] &&
-                      data.data.product.variants.edges[0].node.id;
-      if (variantId) { createCheckout(variantId); }
-    })
-    .catch(function(e){ console.warn('Shopify variant error:', e); });
   }
 
-  // Executa quando DOM estiver pronto
+  /* ── Carrega o SDK ─────────────────────────────────────── */
+  function loadScript() {
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://sdks.shopifycdn.com/buy-button/latest/buy-button-storefront.min.js';
+    s.onload = ShopifyBuyInit;
+    (document.head || document.body).appendChild(s);
+  }
+
+  /* ── Init ──────────────────────────────────────────────── */
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function () {
+      bindOurButtons();
+      if (window.ShopifyBuy && window.ShopifyBuy.UI) { ShopifyBuyInit(); }
+      else { loadScript(); }
+    });
   } else {
-    init();
+    bindOurButtons();
+    if (window.ShopifyBuy && window.ShopifyBuy.UI) { ShopifyBuyInit(); }
+    else { loadScript(); }
   }
-
-  // Reaplica UTMs 1.5s depois (garante Utmify carregada)
-  setTimeout(function(){
-    if (window.__shopifyCheckoutUrl) { applyCheckoutUrl(window.__shopifyCheckoutUrl); }
-  }, 1500);
 })();
 </script>
 </body></html>
